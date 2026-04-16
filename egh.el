@@ -5,7 +5,7 @@
 ;; Version: 0.1.0
 ;; Package-Requires: ((emacs "28.1") (dash "2.19.1") (s "1.13.0") (tablist "1.1") (transient "0.4.3"))
 ;; Keywords: tools, github
-;; URL: https://github.com/violet/egh
+;; URL: https://github.com/kijimad/egh
 
 ;;; Commentary:
 

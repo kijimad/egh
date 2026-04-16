@@ -11,32 +11,11 @@
 
 ## インストール
 
-### load-path に追加する方法
-
-```elisp
-(add-to-list 'load-path "/path/to/egh")
-(require 'egh)
-```
-
-`require 'egh` が `egh-core`, `egh-pr` を内部で読み込むので、個別に require する必要はない。
-
-### Cask を使う場合
-
-```sh
-cd /path/to/egh
-cask install
-```
-
-```elisp
-(add-to-list 'load-path "/path/to/egh")
-(require 'egh)
-```
-
-### use-package の場合
+### straight.el + use-package
 
 ```elisp
 (use-package egh
-  :load-path "/path/to/egh"
+  :straight (:host github :repo "kijimad/egh")
   :commands (egh egh-pull-requests))
 ```
 
