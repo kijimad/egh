@@ -29,8 +29,8 @@
   :group 'egh
   :type 'sexp)
 
-(defcustom egh-pr-default-sort-key '("#" . nil)
-  "Default sort key for PR list."
+(defcustom egh-pr-default-sort-key '("#" . t)
+  "Default sort key for PR list.  Non-nil cdr means descending (newest first)."
   :group 'egh
   :type '(cons string boolean))
 
@@ -124,13 +124,35 @@
   (tablist-minor-mode))
 
 ;;;###autoload
-(defun egh-pull-requests ()
-  "List GitHub pull requests for the current repository."
+(defun egh-pull-requests-open ()
+  "List open pull requests for the current repository."
   (interactive)
   (let ((repo (egh-repo-name)))
-    (egh-utils-pop-to-buffer (format "*egh-pull-requests: %s*" repo))
+    (egh-utils-pop-to-buffer (format "*egh-pull-requests-open: %s*" repo))
     (egh-pr-mode)
     (setq-local egh-pr--repo repo)
+    (tablist-revert)))
+
+;;;###autoload
+(defun egh-pull-requests-all ()
+  "List all pull requests regardless of state."
+  (interactive)
+  (let ((repo (egh-repo-name)))
+    (egh-utils-pop-to-buffer (format "*egh-pull-requests-all: %s*" repo))
+    (egh-pr-mode)
+    (setq-local egh-pr--repo repo)
+    (setq-local egh-pr--args '("--state all"))
+    (tablist-revert)))
+
+;;;###autoload
+(defun egh-pull-requests-mine ()
+  "List pull requests authored by me."
+  (interactive)
+  (let ((repo (egh-repo-name)))
+    (egh-utils-pop-to-buffer (format "*egh-pull-requests-mine: %s*" repo))
+    (egh-pr-mode)
+    (setq-local egh-pr--repo repo)
+    (setq-local egh-pr--args '("--author @me"))
     (tablist-revert)))
 
 ;; Actions

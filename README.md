@@ -16,7 +16,7 @@
 ```elisp
 (use-package egh
   :straight (:host github :repo "kijimad/egh")
-  :commands (egh egh-pull-requests))
+  :commands (egh egh-pull-requests-open egh-pull-requests-all egh-pull-requests-mine))
 ```
 
 ## 使い方
@@ -24,7 +24,10 @@
 ### PR 一覧
 
 ```
-M-x egh-pull-requests
+M-x egh-pull-requests-open   ;; open のみ
+M-x egh-pull-requests-all    ;; 全ステータス
+M-x egh-pull-requests-mine   ;; 自分のPRのみ
+M-x egh                      ;; transient メニューから選択
 ```
 
 | キー    | 動作               |

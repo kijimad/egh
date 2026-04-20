@@ -10,7 +10,7 @@
 ;;; Commentary:
 
 ;; egh provides an Emacs interface to GitHub Pull Requests using the gh CLI.
-;; Use `egh-pull-requests' to list PRs for the current repository.
+;; Use `egh-pull-requests-open' to list PRs for the current repository.
 
 ;;; Code:
 
@@ -21,8 +21,10 @@
 ;;;###autoload (autoload 'egh "egh" nil t)
 (transient-define-prefix egh ()
   "GitHub CLI operations."
-  ["GitHub"
-   ("p" "Pull Requests" egh-pull-requests)])
+  ["Pull Requests"
+   ("p" "Open PRs" egh-pull-requests-open)
+   ("P" "All PRs" egh-pull-requests-all)
+   ("m" "My PRs" egh-pull-requests-mine)])
 
 (provide 'egh)
 ;;; egh.el ends here

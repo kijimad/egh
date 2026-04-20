@@ -25,11 +25,12 @@
         (revert-buffer)))))
 
 (defun egh-pr-view--refresh-list (repo)
-  "Refresh the PR list buffer for REPO if it exists."
-  (let ((buf (get-buffer (format "*egh-pull-requests: %s*" repo))))
-    (when (and buf (buffer-live-p buf))
-      (with-current-buffer buf
-        (tablist-revert)))))
+  "Refresh all PR list buffers for REPO if they exist."
+  (dolist (suffix '("open" "all" "mine"))
+    (let ((buf (get-buffer (format "*egh-pull-requests-%s: %s*" suffix repo))))
+      (when (and buf (buffer-live-p buf))
+        (with-current-buffer buf
+          (tablist-revert))))))
 
 (defvar-local egh-pr-view--number nil
   "PR number for this buffer.")
