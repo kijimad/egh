@@ -74,6 +74,10 @@ Returns (ID [col-values...])."
         (if id (list id)
           (error "No items selected"))))))
 
+(defun egh-repo-name ()
+  "Return the current GitHub repository as \"owner/repo\"."
+  (s-trim (egh-gh-command "repo" "view" "--json" "nameWithOwner" "--jq" ".nameWithOwner")))
+
 (defun egh-utils-pop-to-buffer (name)
   "Pop to buffer NAME, creating if needed."
   (pop-to-buffer (get-buffer-create name)))
@@ -91,6 +95,33 @@ Returns (ID [col-values...])."
   (if (and time-str (stringp time-str) (not (string-empty-p time-str)))
       (format-time-string "%Y-%m-%d" (date-to-time time-str))
     ""))
+
+(defun egh-pr--checks-summary (rollup)
+  "Summarize statusCheckRollup ROLLUP into (PASS FAIL PENDING TOTAL)."
+  (let ((pass 0) (fail 0) (pending 0))
+    (dolist (check rollup)
+      (let ((state (downcase (or (alist-get 'state check) ""))))
+        (pcase state
+          ((or "success" "neutral" "skipped") (cl-incf pass))
+          ((or "failure" "error" "cancelled" "timed_out"
+               "startup_failure" "stale" "action_required") (cl-incf fail))
+          (_ (cl-incf pending)))))
+    (list pass fail pending (+ pass fail pending))))
+
+(defun egh-pr--checks-icon (rollup)
+  "Return a propertized CI status icon for statusCheckRollup ROLLUP."
+  (if (null rollup) "-"
+    (let* ((summary (egh-pr--checks-summary rollup))
+           (fail (nth 1 summary))
+           (pending (nth 2 summary)))
+      (cond
+       ((> fail 0) (propertize "✗" 'font-lock-face 'egh-face-checks-fail))
+       ((> pending 0) (propertize "●" 'font-lock-face 'egh-face-checks-pending))
+       (t (propertize "✓" 'font-lock-face 'egh-face-checks-pass))))))
+
+(defun egh-pr--format-checks (rollup)
+  "Format statusCheckRollup ROLLUP for PR list column."
+  (egh-pr--checks-icon rollup))
 
 (defun egh-pr--format-labels (labels)
   "Format LABELS list to comma-separated string."

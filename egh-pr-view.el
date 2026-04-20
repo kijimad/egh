@@ -13,16 +13,20 @@
 
 (declare-function egh-pr-merge "egh-pr")
 
-(defun egh-pr-view--refresh-buffer (number)
-  "Refresh the PR view buffer for NUMBER if it exists."
-  (let ((buf (get-buffer (format "*egh-pr-%s*" number))))
+(defun egh-pr-view--buffer-name (repo number)
+  "Return buffer name for REPO and PR NUMBER."
+  (format "*egh-pr: %s #%s*" repo number))
+
+(defun egh-pr-view--refresh-buffer (repo number)
+  "Refresh the PR view buffer for REPO and NUMBER if it exists."
+  (let ((buf (get-buffer (egh-pr-view--buffer-name repo number))))
     (when (and buf (buffer-live-p buf))
       (with-current-buffer buf
         (revert-buffer)))))
 
-(defun egh-pr-view--refresh-list ()
-  "Refresh the PR list buffer if it exists."
-  (let ((buf (get-buffer "*egh-pull-requests*")))
+(defun egh-pr-view--refresh-list (repo)
+  "Refresh the PR list buffer for REPO if it exists."
+  (let ((buf (get-buffer (format "*egh-pull-requests: %s*" repo))))
     (when (and buf (buffer-live-p buf))
       (with-current-buffer buf
         (tablist-revert)))))
@@ -30,17 +34,22 @@
 (defvar-local egh-pr-view--number nil
   "PR number for this buffer.")
 
+(defvar-local egh-pr-view--repo nil
+  "Repository name for this buffer.")
+
 (defvar-local egh-pr-view--data nil
   "PR data alist for this buffer.")
 
 (defconst egh-pr-view--fields
-  "number,title,body,author,state,createdAt,updatedAt,comments,reviews,reviewDecision,labels,headRefName,baseRefName,url,additions,deletions,changedFiles,isDraft"
+  "number,title,body,author,state,createdAt,updatedAt,comments,reviews,reviewDecision,labels,headRefName,baseRefName,url,additions,deletions,changedFiles,isDraft,statusCheckRollup,commits"
   "JSON fields for PR view.")
 
-(defun egh-pr-view--fetch (number)
-  "Fetch PR data for NUMBER."
-  (egh-gh-json "pr" "view" (number-to-string number)
-                "--json" egh-pr-view--fields))
+(defun egh-pr-view--fetch (number &optional repo)
+  "Fetch PR data for NUMBER, optionally in REPO."
+  (let ((args (list "pr" "view" (number-to-string number)
+                    "--json" egh-pr-view--fields)))
+    (when repo (setq args (append args (list "--repo" repo))))
+    (apply #'egh-gh-json args)))
 
 (defun egh-pr-view--state-string (data)
   "Return propertized state string from DATA."
@@ -139,9 +148,59 @@
           (insert (format "@%s: %s (%s)\n" author
                           (egh-pr-view--review-string state) submitted)))))))
 
+(defun egh-pr-view--check-icon (state)
+  "Return icon string for check STATE."
+  (let ((s (downcase (or state ""))))
+    (pcase s
+      ((or "success" "neutral" "skipped")
+       (propertize "✓" 'font-lock-face 'egh-face-checks-pass))
+      ((or "failure" "error" "cancelled" "timed_out"
+           "startup_failure" "stale" "action_required")
+       (propertize "✗" 'font-lock-face 'egh-face-checks-fail))
+      (_
+       (propertize "●" 'font-lock-face 'egh-face-checks-pending)))))
+
+(defun egh-pr-view--latest-commit (data)
+  "Return the latest commit alist from DATA, or nil."
+  (let ((commits (alist-get 'commits data)))
+    (when (and commits (listp commits))
+      (car (last commits)))))
+
+(defun egh-pr-view--insert-checks (data)
+  "Insert CI checks section from DATA."
+  (let* ((checks (alist-get 'statusCheckRollup data))
+         (summary (egh-pr--checks-summary (or checks '())))
+         (pass (nth 0 summary))
+         (total (nth 3 summary))
+         (commit (egh-pr-view--latest-commit data)))
+    (insert "\n" (propertize (format "--- Checks (%d/%d passed) ---" pass total)
+                             'font-lock-face 'bold)
+            "\n")
+    (when commit
+      (let ((oid (or (alist-get 'oid commit) ""))
+            (headline (or (alist-get 'messageHeadline commit) "")))
+        (insert (format "Latest: %s %s\n"
+                        (propertize (substring oid 0 (min 7 (length oid)))
+                                    'font-lock-face 'shadow)
+                        headline))))
+    (if (null checks)
+        (insert "(no checks)\n")
+      (dolist (check checks)
+        (let ((name (or (alist-get 'name check) ""))
+              (state (or (alist-get 'state check) ""))
+              (workflow (or (alist-get 'workflow check) nil)))
+          (insert (egh-pr-view--check-icon state) "  "
+                  (propertize name 'font-lock-face 'bold))
+          (when (and workflow (listp workflow))
+            (let ((wf-name (alist-get 'name workflow)))
+              (when wf-name
+                (insert "  " wf-name))))
+          (insert (format "  (%s)\n" (downcase state))))))))
+
 (defun egh-pr-view--render (data)
   "Render PR DATA into current buffer."
   (egh-pr-view--insert-header data)
+  (egh-pr-view--insert-checks data)
   (egh-pr-view--insert-body data)
   (egh-pr-view--insert-comments data)
   (egh-pr-view--insert-reviews data))
@@ -149,7 +208,8 @@
 (defun egh-pr-view--revert (_ignore-auto _noconfirm)
   "Revert PR view buffer."
   (let* ((number egh-pr-view--number)
-         (data (egh-pr-view--fetch number))
+         (repo egh-pr-view--repo)
+         (data (egh-pr-view--fetch number repo))
          (inhibit-read-only t))
     (erase-buffer)
     (egh-pr-view--render data)
@@ -161,11 +221,13 @@
     (set-keymap-parent map special-mode-map)
     (define-key map "c" #'egh-pr-view-comment)
     (define-key map "e" #'egh-pr-view-edit)
-    (define-key map "b" #'egh-pr-view-browse)
+    (define-key map "o" #'egh-pr-view-browse)
     (define-key map "m" #'egh-pr-view-merge)
     (define-key map "C" #'egh-pr-view-close)
     (define-key map "R" #'egh-pr-view-reopen)
     (define-key map "k" #'egh-pr-view-checkout)
+    (define-key map "O" #'egh-pr-view-ready)
+    (define-key map "D" #'egh-pr-view-draft)
     (define-key map "g" #'revert-buffer)
     map)
   "Keymap for `egh-pr-view-mode'.")
@@ -175,47 +237,76 @@
   (setq-local revert-buffer-function #'egh-pr-view--revert))
 
 ;;;###autoload
-(defun egh-pr-view (number)
-  "View PR NUMBER in a detail buffer."
+(defun egh-pr-view (number &optional repo)
+  "View PR NUMBER in a detail buffer.
+REPO is \"owner/repo\"; defaults to the current repository."
   (interactive "nPR number: ")
-  (let* ((buf (get-buffer-create (format "*egh-pr-%s*" number)))
-         (data (egh-pr-view--fetch number)))
+  (let* ((repo (or repo (egh-repo-name)))
+         (buf (get-buffer-create (egh-pr-view--buffer-name repo number)))
+         (data (egh-pr-view--fetch number repo)))
     (with-current-buffer buf
       (let ((inhibit-read-only t))
         (erase-buffer)
         (egh-pr-view--render data))
       (egh-pr-view-mode)
       (setq-local egh-pr-view--number number)
+      (setq-local egh-pr-view--repo repo)
       (setq-local egh-pr-view--data data)
       (goto-char (point-min)))
     (pop-to-buffer buf)))
 
 ;; View buffer actions
 
+(defun egh-pr-view--repo-args ()
+  "Return --repo args if `egh-pr-view--repo' is set."
+  (when egh-pr-view--repo (list "--repo" egh-pr-view--repo)))
+
 (defun egh-pr-view-browse ()
   "Open current PR in browser."
   (interactive)
-  (egh-gh-command "pr" "view" "--web" (number-to-string egh-pr-view--number)))
+  (egh-gh-command "pr" "view" "--web" (number-to-string egh-pr-view--number)
+                  (egh-pr-view--repo-args)))
 
 (defun egh-pr-view-close ()
   "Close current PR."
   (interactive)
-  (egh-gh-command "pr" "close" (number-to-string egh-pr-view--number))
+  (egh-gh-command "pr" "close" (number-to-string egh-pr-view--number)
+                  (egh-pr-view--repo-args))
   (revert-buffer)
-  (egh-pr-view--refresh-list))
+  (egh-pr-view--refresh-list egh-pr-view--repo))
 
 (defun egh-pr-view-reopen ()
   "Reopen current PR."
   (interactive)
-  (egh-gh-command "pr" "reopen" (number-to-string egh-pr-view--number))
+  (egh-gh-command "pr" "reopen" (number-to-string egh-pr-view--number)
+                  (egh-pr-view--repo-args))
   (revert-buffer)
-  (egh-pr-view--refresh-list))
+  (egh-pr-view--refresh-list egh-pr-view--repo))
 
 (defun egh-pr-view-checkout ()
   "Checkout current PR."
   (interactive)
-  (egh-gh-command "pr" "checkout" (number-to-string egh-pr-view--number))
+  (egh-gh-command "pr" "checkout" (number-to-string egh-pr-view--number)
+                  (egh-pr-view--repo-args))
   (message "Checked out PR #%s" egh-pr-view--number))
+
+(defun egh-pr-view-ready ()
+  "Mark current PR as ready for review."
+  (interactive)
+  (egh-gh-command "pr" "ready" (number-to-string egh-pr-view--number)
+                  (egh-pr-view--repo-args))
+  (message "PR #%s marked as ready" egh-pr-view--number)
+  (revert-buffer)
+  (egh-pr-view--refresh-list egh-pr-view--repo))
+
+(defun egh-pr-view-draft ()
+  "Convert current PR to draft."
+  (interactive)
+  (egh-gh-command "pr" "ready" (number-to-string egh-pr-view--number) "--undo"
+                  (egh-pr-view--repo-args))
+  (message "PR #%s converted to draft" egh-pr-view--number)
+  (revert-buffer)
+  (egh-pr-view--refresh-list egh-pr-view--repo))
 
 (defun egh-pr-view-merge ()
   "Merge current PR."
@@ -225,20 +316,20 @@
 (defun egh-pr-view-comment ()
   "Add comment to current PR."
   (interactive)
-  (egh-pr-comment--start (number-to-string egh-pr-view--number)))
+  (egh-pr-comment--start (number-to-string egh-pr-view--number) egh-pr-view--repo))
 
 (defun egh-pr-view-edit ()
   "Edit current PR title or body."
   (interactive)
-  (egh-pr-edit--start egh-pr-view--number egh-pr-view--data))
+  (egh-pr-edit--start egh-pr-view--number egh-pr-view--data egh-pr-view--repo))
 
 ;; Comment compose buffer
 
 (defvar-local egh-pr-comment--pr-number nil
   "PR number for comment buffer.")
 
-(defvar-local egh-pr-comment--callback nil
-  "Callback after comment submission.")
+(defvar-local egh-pr-comment--repo nil
+  "Repository name for comment buffer.")
 
 (defvar egh-pr-comment-mode-map
   (let ((map (make-sparse-keymap)))
@@ -252,27 +343,29 @@
   "Mode for composing a PR comment.
 \\[egh-pr-comment--submit] to submit, \\[egh-pr-comment--cancel] to cancel.")
 
-(defun egh-pr-comment--start (pr-number)
-  "Open comment buffer for PR-NUMBER."
+(defun egh-pr-comment--start (pr-number &optional repo)
+  "Open comment buffer for PR-NUMBER in REPO."
   (let ((buf (get-buffer-create (format "*egh-comment-pr-%s*" pr-number))))
     (pop-to-buffer buf)
     (egh-pr-comment-mode)
     (setq-local egh-pr-comment--pr-number pr-number)
+    (setq-local egh-pr-comment--repo repo)
     (erase-buffer)
-    (insert "")
     (message "Write comment. C-c C-c to submit, C-c C-k to cancel.")))
 
 (defun egh-pr-comment--submit ()
   "Submit the comment."
   (interactive)
   (let ((body (s-trim (buffer-string)))
-        (pr-number egh-pr-comment--pr-number))
+        (pr-number egh-pr-comment--pr-number)
+        (repo egh-pr-comment--repo))
     (when (string-empty-p body)
       (error "Comment body is empty"))
-    (egh-gh-command "pr" "comment" pr-number "--body" body)
+    (egh-gh-command "pr" "comment" pr-number "--body" body
+                    (when repo (list "--repo" repo)))
     (message "Comment added to PR #%s" pr-number)
     (kill-buffer)
-    (egh-pr-view--refresh-buffer pr-number)))
+    (egh-pr-view--refresh-buffer repo pr-number)))
 
 (defun egh-pr-comment--cancel ()
   "Cancel composing comment."
@@ -289,6 +382,9 @@
 (defvar-local egh-pr-edit--pr-number nil
   "PR number for edit buffer.")
 
+(defvar-local egh-pr-edit--repo nil
+  "Repository name for edit buffer.")
+
 (defvar egh-pr-edit-mode-map
   (let ((map (make-sparse-keymap)))
     (set-keymap-parent map text-mode-map)
@@ -302,14 +398,15 @@
 First line is the title, followed by a separator line, then the body.
 \\[egh-pr-edit--submit] to submit, \\[egh-pr-edit--cancel] to cancel.")
 
-(defun egh-pr-edit--start (number data)
-  "Open edit buffer for PR NUMBER with current DATA."
+(defun egh-pr-edit--start (number data &optional repo)
+  "Open edit buffer for PR NUMBER with current DATA in REPO."
   (let ((buf (get-buffer-create (format "*egh-edit-pr-%s*" number)))
         (title (or (alist-get 'title data) ""))
         (body (or (alist-get 'body data) "")))
     (pop-to-buffer buf)
     (egh-pr-edit-mode)
     (setq-local egh-pr-edit--pr-number number)
+    (setq-local egh-pr-edit--repo repo)
     (erase-buffer)
     (insert title "\n" egh-pr-edit--separator "\n" body)
     (goto-char (point-min))
@@ -331,14 +428,16 @@ First line is the title, followed by a separator line, then the body.
   (let* ((parsed (egh-pr-edit--parse))
          (title (car parsed))
          (body (cdr parsed))
-         (number egh-pr-edit--pr-number))
+         (number egh-pr-edit--pr-number)
+         (repo egh-pr-edit--repo))
     (when (string-empty-p title)
       (error "Title cannot be empty"))
     (egh-gh-command "pr" "edit" (number-to-string number)
-                    "--title" title "--body" body)
+                    "--title" title "--body" body
+                    (when repo (list "--repo" repo)))
     (message "Updated PR #%s" number)
     (kill-buffer)
-    (egh-pr-view--refresh-buffer (number-to-string number))))
+    (egh-pr-view--refresh-buffer repo (number-to-string number))))
 
 (defun egh-pr-edit--cancel ()
   "Cancel editing."

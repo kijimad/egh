@@ -35,8 +35,11 @@ M-x egh-pull-requests
 | `C`     | クローズ           |
 | `R`     | リオープン         |
 | `k`     | チェックアウト     |
-| `b`     | ブラウザで開く     |
+| `b`     | ブランチ切り替え   |
+| `o`     | ブラウザで開く     |
 | `c`     | コメント追加       |
+| `O`     | Ready に変更       |
+| `D`     | Draft に変更       |
 | `?`     | ヘルプ             |
 
 `tablist` のマーク機能で複数 PR を選択して一括操作も可能。
@@ -52,7 +55,9 @@ M-x egh-pull-requests
 | `C`     | クローズ           |
 | `R`     | リオープン         |
 | `k`     | チェックアウト     |
-| `b`     | ブラウザで開く     |
+| `o`     | ブラウザで開く     |
+| `O`     | Ready に変更       |
+| `D`     | Draft に変更       |
 | `q`     | 閉じる             |
 
 ### コメント・本文編集バッファ
@@ -61,6 +66,14 @@ M-x egh-pull-requests
 |-------------|--------|
 | `C-c C-c`   | 送信   |
 | `C-c C-k`   | キャンセル |
+
+## テスト
+
+```sh
+emacs --batch -L . \
+  -l egh-core-test -l egh-pr-test -l egh-pr-view-test \
+  -f ert-run-tests-batch-and-exit
+```
 
 ## ファイル構成
 
@@ -80,3 +93,8 @@ egh.el → egh-pr.el → egh-core.el
               ↓            ↓
          egh-pr-view.el  egh-faces.el
 ```
+
+
+(mapc (lambda (f) (load-file f))
+      (seq-remove (lambda (f) (string-match-p "-test\\.el\\'" f))
+                  (directory-files "." t "\\.el\\'")))

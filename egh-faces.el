@@ -42,5 +42,20 @@
   "Face for changes-requested review status."
   :group 'egh-faces)
 
+(defface egh-face-checks-pass
+  '((t :inherit success))
+  "Face for passed CI checks."
+  :group 'egh-faces)
+
+(defface egh-face-checks-fail
+  '((t :inherit error))
+  "Face for failed CI checks."
+  :group 'egh-faces)
+
+(defface egh-face-checks-pending
+  '((t :inherit warning))
+  "Face for pending CI checks."
+  :group 'egh-faces)
+
 (provide 'egh-faces)
 ;;; egh-faces.el ends here
